@@ -22,3 +22,8 @@ clean cls:
 
 tar:
 	tar cvfa Lab2_${LOGNAME}.tar.gz *.[ch] [mM]akefile *.bash
+
+git:
+	git add .; \
+	git commit -m "Makefile commit message"; \
+	git push
