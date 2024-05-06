@@ -1,11 +1,10 @@
 CC = gcc
 DEBUG = -g
-CFLAGS = $(DEBUG) -Wall -Wextra -Wshadow -Wunreachable-code \
--Wredundant-decls -Wmissing-declarations \
--Wold-style-definition -Wmissing-prototypes \
--Wdeclaration-after-statement -Wno-return-local-addr \
--Wunsafe-loop-optimizations -Wuninitialized -Werror \
--Wno-unused-parameter
+CFLAGS = $(DEBUG) -Wall -Wextra -Wshadow -Wunreachable-code -Wredundant-decls \
+-Wmissing-declarations -Wold-style-definition \
+-Wmissing-prototypes -Wdeclaration-after-statement \
+-Wno-return-local-addr -Wunsafe-loop-optimizations \
+-Wuninitialized -Werror
 PROG1 = viktar
 PROGS = $(PROG1)
 

@@ -1,7 +1,5 @@
 // R. Jesse Chaney
 // rchaney@pdx.edu
-// Modified by Alan Shirk
-// for CS 333 Lab2
 
 #pragma once
 
