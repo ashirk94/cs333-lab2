@@ -19,14 +19,17 @@
 #define HEADER_SIZE strlen(viktar_header_t)
 #define FOOTER_SIZE strlen(viktar_footer_t)
 
+void display_help(void);
+
 int 
 main(int argc, char *argv[])
 {
     int verbose = FALSE;
-    //viktar_action_t action = ACTION_NONE;
-    // const char *archive_file = NULL;
-    // const char **files_to_extract = NULL;
-    // int num_files = 0;
+    // viktar_action_t action = ACTION_NONE;
+    char *filename = NULL;
+    int iarch = STDIN_FILENO;
+    char buf[100] = {'\0'};
+    viktar_header_t md;
 
     // Processing command line options with getopt
     {
@@ -35,16 +38,18 @@ main(int argc, char *argv[])
         while ((opt = getopt(argc, argv, OPTIONS)) != -1) {
             switch (opt) {
             case 'h': // Help info
-                printf("viktar <options> [archive-file] [member [...]]");
-                printf("\t-x\tExtract members from viktar file\n");
-                printf("\t-c\tCreate a viktar style archive file\n");
-                printf("\t-t\tShort table of contents\n");
-                printf("\t-T\tLong table of contents\n");
-                printf("\t-t\tLong table of contents\n");
-                printf("\t-f filename\tSpecify the name of the viktar file on which to operate\n");
-                printf("\t-V\tValidate the content of the archive member with the CRC values stored in the archive file\n");
-                printf("\t-h\tShow help text and exit\n");
-                printf("\t-v\tVerbose mode\n");
+                printf("help text\n");
+                printf("\t%s\n", argv[0]);
+                printf("\tOptions: %s\n", OPTIONS);
+                printf("\t\t-x\t\textract file/files from archive\n");
+                printf("\t\t-c\t\tcreate an archive file\n");
+                printf("\t\t-t\t\tdisplay a short table of contents of the archive file\n");
+                printf("\t\t-T\t\tdisplay a long table of contents of the archive file\n");
+                printf("\t\tOnly one of xctTV can be specified\n");
+                printf("\t\t-f filename\tuse filename as the archive file\n");
+                printf("\t\t-V\t\tvalidate the crc values in the viktar file\n");
+                printf("\t\t-v\t\tgive verbose diagnostic messages\n");
+                printf("\t\t-h\t\tdisplay this AMAZING help message\n");
                 return EXIT_SUCCESS;
                 break;
                 
@@ -53,24 +58,25 @@ main(int argc, char *argv[])
                 fprintf(stderr, "verbose enabled\n");
                 break;
 
-            case 'x':
+            case 'x': // Extract members from viktar file
                 //action = ACTION_EXTRACT;
                 break;
 
-            case 'c':
+            case 'c': // Create viktar file
                 break;
 
-            case 't':
+            case 't': // Short table of contents
+
                 break;
 
-            case 'T':
+            case 'T': // Long table of contents
                 break;
 
-            case 'f':
-                //archive_file = optarg;
+            case 'f': // Sets viktar input file
+                filename = optarg;
                 break;
             
-            case 'V':
+            case 'V': // Validate archive member with CRC values
                 break;
 
             default: // Invalid options
@@ -81,6 +87,30 @@ main(int argc, char *argv[])
         }
     }
 
+    // If filename is set with -f, assigning the file descriptor to iarch
+    if (filename != NULL) {
+        iarch = open(filename, O_RDONLY);
+    }
+
+    // Reading the file
+    fprintf(stderr, "reading archive file: \"%s\"\n", filename);
+    read(iarch, buf, strlen(VIKTAR_TAG));
+
+    // Validates the tag
+    if(strncmp(buf, VIKTAR_TAG, strlen(VIKTAR_TAG) != 0)) {
+        // Not a valid viktar file
+        fprintf(stderr, "not a viktar file: \"%s\"\n", filename);
+        exit(EXIT_FAILURE);
+    }
+
+    // Processing the archive file metadata
+    printf("Contents of viktar file: \"%s\"\n", filename != NULL ? filename : "stdin");
+
+    while (read(iarch, &md, sizeof(viktar_header_t)) > 0) {
+        // Printing archive member name
+    }
+
+
     if (optind < argc) {
         for (int i = optind; i < argc; i++) {
             // Verbose output
@@ -90,71 +120,3 @@ main(int argc, char *argv[])
     }
     return EXIT_SUCCESS;
 }
-
-// // Extracts files from the viktar archive
-// int extract_files(const char *archive_file, const char **files_to_extract, int num_files) {
-//     int archive_fd;
-//     if (archive_file) {
-//         // Open the archive file for reading
-//         archive_fd = open(archive_file, O_RDONLY);
-//         if (archive_fd == -1) {
-//             perror("Error opening archive file");
-//             return EXIT_FAILURE;
-//         }
-//     } else {
-//         // Read from stdin
-//         archive_fd = STDIN_FILENO;
-//     }
-
-//     // Loop through each file in the viktar archive
-//     for (int i = 0; i < num_files; i++) {
-//         // Extract files based on their names provided in files_to_extract
-        
-//         // Get file status
-//         struct stat st;
-//         if (stat(files_to_extract[i], &st) == -1) {
-//             perror("Error getting file status");
-//             return 1;
-//         }
-
-//         // Restore timestamps
-//         struct utimbuf utime_buf;
-//         utime_buf.actime = st.st_atime;
-//         utime_buf.modtime = st.st_mtime;
-//         if (utime(files_to_extract[i], &utime_buf) == -1) {
-//             perror("Error restoring timestamps");
-//             return EXIT_FAILURE;
-//         }
-
-//         // Restore permissions
-//         if (chmod(files_to_extract[i], st.st_mode) == -1) {
-//             perror("Error restoring file permissions");
-//             return EXIT_FAILURE;
-//         }
-
-//         // Validate CRC values
-//         uLong crc32_data = crc32(0L, Z_NULL, 0);
-//         unsigned char buffer[1024]; // Adjust buffer size as needed
-//         ssize_t bytes_read;
-//         int file_fd = open(files_to_extract[i], O_RDONLY);
-//         if (file_fd == -1) {
-//             perror("Error opening file for CRC validation");
-//             return EXIT_FAILURE;
-//         }
-//         while ((bytes_read = read(file_fd, buffer, sizeof(buffer))) > 0) {
-//             crc32_data = crc32(crc32_data, buffer, (uInt)bytes_read);
-//         }
-//         close(file_fd);
-
-//         // Compare CRC values and issue warning if they do not match
-//         // Extract the file anyway
-
-//         // Overwrite existing files if necessary
-//     }
-
-//     if (archive_file) {
-//         close(archive_fd);
-//     }
-
-//     return 0;
-// }
