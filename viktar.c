@@ -16,16 +16,13 @@
 
 #include "viktar.h"
 
-#define HEADER_SIZE strlen(viktar_header_t)
-#define FOOTER_SIZE strlen(viktar_footer_t)
-
 void display_help(void);
 
 int 
 main(int argc, char *argv[])
 {
     int verbose = FALSE;
-    // viktar_action_t action = ACTION_NONE;
+    viktar_action_t action = ACTION_NONE;
     char *filename = NULL;
     int iarch = STDIN_FILENO;
     char buf[100] = {'\0'};
@@ -55,21 +52,22 @@ main(int argc, char *argv[])
                 
             case 'v': // Verbose mode
                 verbose = TRUE;
-                fprintf(stderr, "verbose enabled\n");
                 break;
 
             case 'x': // Extract members from viktar file
-                //action = ACTION_EXTRACT;
+                action = ACTION_EXTRACT;
                 break;
 
             case 'c': // Create viktar file
+                action = ACTION_CREATE;
                 break;
 
             case 't': // Short table of contents
-
+                action = ACTION_TOC_SHORT;
                 break;
 
             case 'T': // Long table of contents
+                action = ACTION_TOC_LONG;
                 break;
 
             case 'f': // Sets viktar input file
@@ -77,46 +75,60 @@ main(int argc, char *argv[])
                 break;
             
             case 'V': // Validate archive member with CRC values
+                action = ACTION_VALIDATE;
                 break;
 
             default: // Invalid options
-                fprintf(stderr, "unknown option... Exiting.\n");
+                printf("invalid option -- '%s'", optarg);
+                printf("oopsie - unrecognized command line option \"(null)\"\n");
+                printf("no action supplied\n");
+                printf("exiting without doing ANYTHING...\n");
                 return EXIT_FAILURE;
                 break;
             }
         }
     }
-
-    // If filename is set with -f, assigning the file descriptor to iarch
-    if (filename != NULL) {
-        iarch = open(filename, O_RDONLY);
+    // Verbose output
+    if (verbose == TRUE) {
+        fprintf(stderr, "verbose enabled\n");
     }
 
-    // Reading the file
-    fprintf(stderr, "reading archive file: \"%s\"\n", filename);
-    read(iarch, buf, strlen(VIKTAR_TAG));
-
-    // Validates the tag
-    if(strncmp(buf, VIKTAR_TAG, strlen(VIKTAR_TAG) != 0)) {
-        // Not a valid viktar file
-        fprintf(stderr, "not a viktar file: \"%s\"\n", filename);
-        exit(EXIT_FAILURE);
-    }
-
-    // Processing the archive file metadata
-    printf("Contents of viktar file: \"%s\"\n", filename != NULL ? filename : "stdin");
-
-    while (read(iarch, &md, sizeof(viktar_header_t)) > 0) {
-        // Printing archive member name
-    }
-
-
-    if (optind < argc) {
-        for (int i = optind; i < argc; i++) {
-            // Verbose output
-            if (verbose == TRUE) {
-            }
+    // Short table of contents
+    if (action == ACTION_TOC_SHORT) {
+        // If filename is set with -f, assigning the file descriptor to iarch
+        if (filename != NULL) {
+            iarch = open(filename, O_RDONLY);
         }
+
+        // Reading the file
+        fprintf(stderr, "reading archive file: \"%s\"\n", filename != NULL ? filename : "stdin");
+        read(iarch, buf, strlen(VIKTAR_TAG));
+
+        // Validates the tag
+        if(strncmp(buf, VIKTAR_TAG, strlen(VIKTAR_TAG) != 0)) {
+            // Not a valid viktar file
+            fprintf(stderr, "not a viktar file: \"%s\"\n", filename != NULL ? filename : "stdin");
+            exit(EXIT_FAILURE);
+        }
+
+        // Processing the archive file metadata
+        printf("Contents of viktar file: \"%s\"\n", filename != NULL ? filename : "stdin");
+
+        while (read(iarch, &md, sizeof(viktar_header_t)) > 0) {
+            // Printing archive member name
+            memset(buf, 0, 100);
+            strncpy(buf, md.viktar_name, VIKTAR_MAX_FILE_NAME_LEN);
+            printf("\tfile name: %s\n", buf);
+            lseek(iarch, md.st_size + sizeof(viktar_footer_t), SEEK_CUR);
+        }
+
+        // Closing the file
+        if (filename != NULL) {
+            close(iarch);
+        }
+
     }
+
+
     return EXIT_SUCCESS;
 }
