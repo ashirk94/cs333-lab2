@@ -17,7 +17,7 @@ $(PROG1).o: $(PROG1).c
 	$(CC) $(CFLAGS) -c $<
 
 clean cls:
-	rm -f $(PROGS) *.o *~ \#*
+	rm -f $(PROGS) *.o *~ \#* *.viktar *.txt *.bin *.err *.out *.jerr *.serr *.sout *.jout
 
 tar:
 	tar cvfa Lab2_${LOGNAME}.tar.gz *.[ch] [mM]akefile *.bash
