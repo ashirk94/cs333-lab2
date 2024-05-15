@@ -21,7 +21,7 @@ clean cls:
 	rm -f $(PROGS) *.o *~ \#* *.viktar *.txt *.bin *.err *.out *.jerr *.serr *.sout *.jout
 
 tar:
-	tar cvfa Lab2_${LOGNAME}.tar.gz *.[ch] [mM]akefile alans-viktar-test.bash
+	tar cvfa Lab2_${LOGNAME}.tar.gz *.[ch] [mM]akefile
 
 git:
 	git add .; \
