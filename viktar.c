@@ -1,6 +1,3 @@
-// Lab 2 viktar.c
-// Alan Shirk - alans
-
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,16 +13,134 @@
 
 #include "viktar.h"
 
-#define BUFFER_SIZE 100
+#define BUFFER_SIZE 1000
 
+void display_help(void);
 uint32_t calculate_crc32(const void *buf, size_t len);
+void run_toc_short(const char *filename);
+void run_toc_long(const char *filename);
+void create_archive(const char *filename, int file_count, char *file_list[]);
 
-int 
-main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
     int verbose = FALSE;
     viktar_action_t action = ACTION_NONE;
     char *filename = NULL;
+
+    // Processing command line options with getopt
+    int opt = -1;
+    while ((opt = getopt(argc, argv, OPTIONS)) != -1) {
+        switch (opt) {
+            case 'h': // Help info
+                display_help();
+                return EXIT_SUCCESS;
+            case 'v': // Verbose mode
+                verbose = TRUE;
+                break;
+            case 'x': // Extract members from viktar file
+                action = ACTION_EXTRACT;
+                break;
+            case 'c': // Create viktar file
+                action = ACTION_CREATE;
+                break;
+            case 't': // Short table of contents
+                action = ACTION_TOC_SHORT;
+                break;
+            case 'T': // Long table of contents
+                action = ACTION_TOC_LONG;
+                break;
+            case 'f': // Sets viktar input file
+                filename = optarg;
+                break;
+            case 'V': // Validate archive member with CRC values
+                action = ACTION_VALIDATE;
+                break;
+            default: // Invalid options
+                printf("invalid option -- '%s'\n", optarg);
+                printf("oopsie - unrecognized command line option \"(null)\"\n");
+                printf("no action supplied\n");
+                printf("exiting without doing ANYTHING...\n");
+                return EXIT_FAILURE;
+        }
+    }
+
+    // Verbose output
+    if (verbose == TRUE) {
+        fprintf(stderr, "verbose enabled\n");
+    }
+
+    // Execute the selected action
+    switch (action) {
+        case ACTION_TOC_SHORT:
+            run_toc_short(filename);
+            break;
+        case ACTION_TOC_LONG:
+            run_toc_long(filename);
+            break;
+        case ACTION_CREATE:
+            create_archive(filename, argc - optind, &argv[optind]);
+            break;
+        // Add cases for other actions (e.g., ACTION_EXTRACT, ACTION_VALIDATE)
+        default:
+            printf("no action supplied\n");
+            printf("exiting without doing ANYTHING...\n");
+            return EXIT_FAILURE;
+    }
+
+    return EXIT_SUCCESS;
+}
+
+void display_help(void) {
+    printf("help text\n");
+    printf("\t%s\n", "viktar");
+    printf("\tOptions: %s\n", OPTIONS);
+    printf("\t\t-x\t\textract file/files from archive\n");
+    printf("\t\t-c\t\tcreate an archive file\n");
+    printf("\t\t-t\t\tdisplay a short table of contents of the archive file\n");
+    printf("\t\t-T\t\tdisplay a long table of contents of the archive file\n");
+    printf("\t\tOnly one of xctTV can be specified\n");
+    printf("\t\t-f filename\tuse filename as the archive file\n");
+    printf("\t\t-V\t\tvalidate the crc values in the viktar file\n");
+    printf("\t\t-v\t\tgive verbose diagnostic messages\n");
+    printf("\t\t-h\t\tdisplay this AMAZING help message\n");
+}
+
+void run_toc_short(const char *filename) {
+    int iarch = STDIN_FILENO;
+    char buf[BUFFER_SIZE] = {'\0'};
+    viktar_header_t header;
+
+    if (filename == NULL) {
+        fprintf(stderr, "reading archive from stdin\n");
+    } else {
+        iarch = open(filename, O_RDONLY);
+        if (iarch < 0) {
+            perror("cannot open archive file");
+            exit(EXIT_FAILURE);
+        }
+        fprintf(stderr, "reading archive file: \"%s\"\n", filename);
+        read(iarch, buf, strlen(VIKTAR_TAG));
+    }
+
+    if (strncmp(buf, VIKTAR_TAG, strlen(VIKTAR_TAG)) != 0) {
+        fprintf(stderr, "not a viktar file: \"%s\"\n", filename != NULL ? filename : "stdin");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Contents of viktar file: \"%s\"\n", filename != NULL ? filename : "stdin");
+
+    while (read(iarch, &header, sizeof(viktar_header_t)) > 0) {
+        memset(buf, 0, BUFFER_SIZE);
+        strncpy(buf, header.viktar_name, VIKTAR_MAX_FILE_NAME_LEN);
+        printf("\tfile name: %s\n", buf);
+        lseek(iarch, header.st_size + sizeof(viktar_footer_t), SEEK_CUR);
+    }
+
+    if (filename != NULL) {
+        close(iarch);
+    }
+}
+
+void run_toc_long(const char *filename) {
     int iarch = STDIN_FILENO;
     char buf[BUFFER_SIZE] = {'\0'};
     unsigned char crc_buf[BUFFER_SIZE] = {'\0'};
@@ -36,145 +151,36 @@ main(int argc, char *argv[])
     struct tm *atime;
     char mtime_date[40];
     char atime_date[40];
-    char mode_str[11];
     uint32_t crc_header;
     uint32_t crc_data;
     ssize_t bytes_read;
     size_t data_remaining;
     size_t to_read;
+    char mode_str[11];
 
-    // Processing command line options with getopt
-    {
-        int opt = -1;
-
-        while ((opt = getopt(argc, argv, OPTIONS)) != -1) {
-            switch (opt) {
-            case 'h': // Help info
-                printf("help text\n");
-                printf("\t%s\n", argv[0]);
-                printf("\tOptions: %s\n", OPTIONS);
-                printf("\t\t-x\t\textract file/files from archive\n");
-                printf("\t\t-c\t\tcreate an archive file\n");
-                printf("\t\t-t\t\tdisplay a short table of contents of the archive file\n");
-                printf("\t\t-T\t\tdisplay a long table of contents of the archive file\n");
-                printf("\t\tOnly one of xctTV can be specified\n");
-                printf("\t\t-f filename\tuse filename as the archive file\n");
-                printf("\t\t-V\t\tvalidate the crc values in the viktar file\n");
-                printf("\t\t-v\t\tgive verbose diagnostic messages\n");
-                printf("\t\t-h\t\tdisplay this AMAZING help message\n");
-                return EXIT_SUCCESS;
-                break;
-                
-            case 'v': // Verbose mode
-                verbose = TRUE;
-                break;
-
-            case 'x': // Extract members from viktar file
-                action = ACTION_EXTRACT;
-                break;
-
-            case 'c': // Create viktar file
-                action = ACTION_CREATE;
-                break;
-
-            case 't': // Short table of contents
-                action = ACTION_TOC_SHORT;
-                break;
-
-            case 'T': // Long table of contents
-                action = ACTION_TOC_LONG;
-                break;
-
-            case 'f': // Sets viktar input file
-                filename = optarg;
-                break;
-            
-            case 'V': // Validate archive member with CRC values
-                action = ACTION_VALIDATE;
-                break;
-
-            default: // Invalid options
-                printf("invalid option -- '%s'", optarg);
-                printf("oopsie - unrecognized command line option \"(null)\"\n");
-                printf("no action supplied\n");
-                printf("exiting without doing ANYTHING...\n");
-                return EXIT_FAILURE;
-                break;
-            }
-        }
-    }
-    // Verbose output
-    if (verbose == TRUE) {
-        fprintf(stderr, "verbose enabled\n");
-    }
-
-    // Short table of contents
-    if (action == ACTION_TOC_SHORT) {
-
-        if (filename == NULL) {
-            fprintf(stderr, "reading archive from stdin\n");
-        }     
-        else {
-            // If filename is set with -f, assigning the file descriptor to iarch
-            iarch = open(filename, O_RDONLY);
-            fprintf(stderr, "reading archive file: \"%s\"\n", filename);
-            // Reading the file
-            read(iarch, buf, strlen(VIKTAR_TAG));
-        }
-
-        // Validates the tag
-        if(strncmp(buf, VIKTAR_TAG, strlen(VIKTAR_TAG)) != 0) {
-            // Not a valid viktar file
-            fprintf(stderr, "not a viktar file: \"%s\"\n", filename != NULL ? filename : "stdin");
+    if (filename == NULL) {
+        fprintf(stderr, "reading archive from stdin\n");
+    } else {
+        iarch = open(filename, O_RDONLY);
+        if (iarch < 0) {
+            perror("cannot open archive file");
             exit(EXIT_FAILURE);
         }
-
-        // Processing the archive file metadata
-        printf("Contents of viktar file: \"%s\"\n", filename != NULL ? filename : "stdin");
-
-        while (read(iarch, &header, sizeof(viktar_header_t)) > 0) {
-            // Printing archive member name
-            memset(buf, 0, 100);
-            strncpy(buf, header.viktar_name, VIKTAR_MAX_FILE_NAME_LEN);
-            printf("\tfile name: %s\n", buf);
-            lseek(iarch, header.st_size + sizeof(viktar_footer_t), SEEK_CUR);
-        }
-
-        // Closing the file
-        if (filename != NULL) {
-            close(iarch);
-        }
-
+        fprintf(stderr, "reading archive file: \"%s\"\n", filename);
+        read(iarch, buf, strlen(VIKTAR_TAG));
     }
 
-    // Long table of contents
-    if (action == ACTION_TOC_LONG) {
-        if (filename == NULL) {
-            fprintf(stderr, "reading archive from stdin\n");
-        }     
-        else {
-            // If filename is set with -f, assigning the file descriptor to iarch
-            iarch = open(filename, O_RDONLY);
-            fprintf(stderr, "reading archive file: \"%s\"\n", filename);
-            // Reading the file
-            read(iarch, buf, strlen(VIKTAR_TAG));
-        }
+    if (strncmp(buf, VIKTAR_TAG, strlen(VIKTAR_TAG)) != 0) {
+        fprintf(stderr, "not a viktar file: \"%s\"\n", filename != NULL ? filename : "stdin");
+        exit(EXIT_FAILURE);
+    }
 
-        // Validates the tag
-        if(strncmp(buf, VIKTAR_TAG, strlen(VIKTAR_TAG)) != 0) {
-            // Not a valid viktar file
-            fprintf(stderr, "not a viktar file: \"%s\"\n", filename != NULL ? filename : "stdin");
-            exit(EXIT_FAILURE);
-        }
-
-        // Processing the archive file metadata
-        printf("Contents of viktar file: \"%s\"\n", filename != NULL ? filename : "stdin");
+    printf("Contents of viktar file: \"%s\"\n", filename != NULL ? filename : "stdin");
 
     while (read(iarch, &header, sizeof(viktar_header_t)) > 0) {
-        memset(buf, 0, 100);
+        memset(buf, 0, BUFFER_SIZE);
         strncpy(buf, header.viktar_name, VIKTAR_MAX_FILE_NAME_LEN);
 
-        // Updates user and group information for each header
         pw = getpwuid(header.st_uid);
         gr = getgrgid(header.st_gid);
         mtime = localtime(&header.st_mtim.tv_sec);
@@ -182,7 +188,8 @@ main(int argc, char *argv[])
         strftime(mtime_date, sizeof(mtime_date), "%Y-%m-%d %H:%M:%S %Z", mtime);
         strftime(atime_date, sizeof(atime_date), "%Y-%m-%d %H:%M:%S %Z", atime);
 
-        // Creates the mode string
+        printf("\tfile name: %s\n", buf);
+
         mode_str[0] = (S_ISDIR(header.st_mode)) ? 'd' : '-';
         mode_str[1] = (header.st_mode & S_IRUSR) ? 'r' : '-';
         mode_str[2] = (header.st_mode & S_IWUSR) ? 'w' : '-';
@@ -195,7 +202,6 @@ main(int argc, char *argv[])
         mode_str[9] = (header.st_mode & S_IXOTH) ? 'x' : '-';
         mode_str[10] = '\0';
 
-        printf("\tfile name: %s\n", buf);
         printf("\t\tmode:         %s\n", mode_str);
         printf("\t\tuser:         %s\n", pw != NULL ? pw->pw_name : "unknown");
         printf("\t\tgroup:        %s\n", gr != NULL ? gr->gr_name : "unknown");
@@ -203,11 +209,10 @@ main(int argc, char *argv[])
         printf("\t\tmtime:        %s\n", mtime_date);
         printf("\t\tatime:        %s\n", atime_date);
 
-        // Calculates CRC header
-        crc_header = calculate_crc32(&header, sizeof(viktar_header_t));
+        crc_header = crc32(0L, Z_NULL, 0);
+        crc_header = crc32(crc_header, (const Bytef *)&header, sizeof(viktar_header_t));
         printf("\t\tcrc32 header: 0x%08x\n", crc_header);
 
-        // Reads data and calculates CRC for data
         crc_data = crc32(0L, Z_NULL, 0);
         data_remaining = header.st_size;
 
@@ -228,20 +233,117 @@ main(int argc, char *argv[])
         lseek(iarch, sizeof(viktar_footer_t), SEEK_CUR);
     }
 
-        // Closing the file
-        if (filename != NULL) {
-            close(iarch);
-        }
-
+    if (filename != NULL) {
+        close(iarch);
     }
-    
-
-
-
-    return EXIT_SUCCESS;
 }
 
-// Function to calculate CRC32
+void create_archive(const char *filename, int file_count, char *file_list[]) {
+    int oarch;
+    int ifd;
+    struct stat st;
+    viktar_header_t header;
+    uint32_t crc_header;
+    uint32_t crc_data;
+    size_t data_remaining;
+    size_t to_read;
+    ssize_t bytes_read;
+    unsigned char crc_buf[BUFFER_SIZE];
+    viktar_footer_t footer;
+
+    // Opening the archive file for writing
+    if (filename != NULL) {
+        oarch = open(filename, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+        if (oarch < 0) {
+            perror("cannot open/create archive file");
+            exit(EXIT_FAILURE);
+        }
+    } else {
+        oarch = STDOUT_FILENO;
+    }
+
+    // Writing the VIKTAR_TAG to the archive file
+    if (write(oarch, VIKTAR_TAG, strlen(VIKTAR_TAG)) != (ssize_t)strlen(VIKTAR_TAG)) {
+        perror("write error");
+        if (filename != NULL) close(oarch);
+        exit(EXIT_FAILURE);
+    }
+
+    // Loop through each file to add to the archive
+    for (int i = 0; i < file_count; i++) {
+        char *member_filename = file_list[i];
+        if (stat(member_filename, &st) < 0) {
+            perror("stat error");
+            if (filename != NULL) close(oarch);
+            exit(EXIT_FAILURE);
+        }
+
+        ifd = open(member_filename, O_RDONLY);
+        if (ifd < 0) {
+            perror("cannot open member file");
+            if (filename != NULL) close(oarch);
+            exit(EXIT_FAILURE);
+        }
+
+        memset(&header, 0, sizeof(viktar_header_t));
+        strncpy(header.viktar_name, member_filename, VIKTAR_MAX_FILE_NAME_LEN);
+        header.st_size = st.st_size;
+        header.st_mode = st.st_mode;
+        header.st_uid = st.st_uid;
+        header.st_gid = st.st_gid;
+        header.st_atim = st.st_atim;
+        header.st_mtim = st.st_mtim;
+
+        crc_header = crc32(0L, Z_NULL, 0);
+        crc_header = crc32(crc_header, (const Bytef *)&header, sizeof(viktar_header_t));
+
+        if (write(oarch, &header, sizeof(viktar_header_t)) != sizeof(viktar_header_t)) {
+            perror("write header error");
+            close(ifd);
+            if (filename != NULL) close(oarch);
+            exit(EXIT_FAILURE);
+        }
+
+        crc_data = crc32(0L, Z_NULL, 0);
+        data_remaining = st.st_size;
+
+        while (data_remaining > 0) {
+            to_read = (data_remaining > BUFFER_SIZE) ? BUFFER_SIZE : data_remaining;
+            bytes_read = read(ifd, crc_buf, to_read);
+            if (bytes_read < 0) {
+                perror("read error");
+                close(ifd);
+                if (filename != NULL) close(oarch);
+                exit(EXIT_FAILURE);
+            }
+            if (write(oarch, crc_buf, bytes_read) != bytes_read) {
+                perror("write data error");
+                close(ifd);
+                if (filename != NULL) close(oarch);
+                exit(EXIT_FAILURE);
+            }
+            crc_data = crc32(crc_data, crc_buf, bytes_read);
+            data_remaining -= bytes_read;
+        }
+
+        footer.crc32_header = crc_header;
+        footer.crc32_data = crc_data;
+
+        if (write(oarch, &footer, sizeof(viktar_footer_t)) != sizeof(viktar_footer_t)) {
+            perror("write footer error");
+            close(ifd);
+            if (filename != NULL) close(oarch);
+            exit(EXIT_FAILURE);
+        }
+
+        close(ifd);
+    }
+
+    if (filename != NULL) {
+        close(oarch);
+    }
+}
+
 uint32_t calculate_crc32(const void *buf, size_t len) {
     return crc32(0L, Z_NULL, 0) ^ crc32(0L, buf, len);
 }
