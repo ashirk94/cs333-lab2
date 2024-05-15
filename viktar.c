@@ -16,7 +16,9 @@
 
 #include "viktar.h"
 
-void display_help(void);
+#define BUFFER_SIZE 100
+
+uint32_t calculate_crc32(const void *buf, size_t len);
 
 int 
 main(int argc, char *argv[])
@@ -25,15 +27,21 @@ main(int argc, char *argv[])
     viktar_action_t action = ACTION_NONE;
     char *filename = NULL;
     int iarch = STDIN_FILENO;
-    char buf[100] = {'\0'};
+    char buf[BUFFER_SIZE] = {'\0'};
+    unsigned char crc_buf[BUFFER_SIZE] = {'\0'};
     viktar_header_t header;
-    viktar_footer_t footer;
     struct passwd *pw;
     struct group *gr;
     struct tm *mtime;
     struct tm *atime;
-    char mtime_date[20];
-    char atime_date[20];
+    char mtime_date[40];
+    char atime_date[40];
+    char mode_str[11];
+    uint32_t crc_header;
+    uint32_t crc_data;
+    ssize_t bytes_read;
+    size_t data_remaining;
+    size_t to_read;
 
     // Processing command line options with getopt
     {
@@ -158,7 +166,15 @@ main(int argc, char *argv[])
             fprintf(stderr, "not a viktar file: \"%s\"\n", filename != NULL ? filename : "stdin");
             exit(EXIT_FAILURE);
         }
-        // Getting metadata
+
+        // Processing the archive file metadata
+        printf("Contents of viktar file: \"%s\"\n", filename != NULL ? filename : "stdin");
+
+    while (read(iarch, &header, sizeof(viktar_header_t)) > 0) {
+        memset(buf, 0, 100);
+        strncpy(buf, header.viktar_name, VIKTAR_MAX_FILE_NAME_LEN);
+
+        // Updates user and group information for each header
         pw = getpwuid(header.st_uid);
         gr = getgrgid(header.st_gid);
         mtime = localtime(&header.st_mtim.tv_sec);
@@ -166,29 +182,51 @@ main(int argc, char *argv[])
         strftime(mtime_date, sizeof(mtime_date), "%Y-%m-%d %H:%M:%S %Z", mtime);
         strftime(atime_date, sizeof(atime_date), "%Y-%m-%d %H:%M:%S %Z", atime);
 
-        // Processing the archive file metadata
-        printf("Contents of viktar file: \"%s\"\n", filename != NULL ? filename : "stdin");
+        // Creates the mode string
+        mode_str[0] = (S_ISDIR(header.st_mode)) ? 'd' : '-';
+        mode_str[1] = (header.st_mode & S_IRUSR) ? 'r' : '-';
+        mode_str[2] = (header.st_mode & S_IWUSR) ? 'w' : '-';
+        mode_str[3] = (header.st_mode & S_IXUSR) ? 'x' : '-';
+        mode_str[4] = (header.st_mode & S_IRGRP) ? 'r' : '-';
+        mode_str[5] = (header.st_mode & S_IWGRP) ? 'w' : '-';
+        mode_str[6] = (header.st_mode & S_IXGRP) ? 'x' : '-';
+        mode_str[7] = (header.st_mode & S_IROTH) ? 'r' : '-';
+        mode_str[8] = (header.st_mode & S_IWOTH) ? 'w' : '-';
+        mode_str[9] = (header.st_mode & S_IXOTH) ? 'x' : '-';
+        mode_str[10] = '\0';
 
-        while (read(iarch, &header, sizeof(viktar_header_t)) > 0) {
-            // Printing archive member name
-            memset(buf, 0, 100);
-            strncpy(buf, header.viktar_name, VIKTAR_MAX_FILE_NAME_LEN);
-            printf("\tfile name: %s\n", buf);
-            printf("\t\tmode:         %04o\n", header.st_mode & 07777);
-            printf("\t\tuser:         %s\n", pw->pw_name);
-            printf("\t\tgroup:        %s\n", gr->gr_name);
-            printf("\t\tsize:         %ld\n", header.st_size);
-            printf("\t\tmtime:        %s\n", mtime_date);
-            printf("\t\tatime:        %s\n", atime_date);
+        printf("\tfile name: %s\n", buf);
+        printf("\t\tmode:         %s\n", mode_str);
+        printf("\t\tuser:         %s\n", pw != NULL ? pw->pw_name : "unknown");
+        printf("\t\tgroup:        %s\n", gr != NULL ? gr->gr_name : "unknown");
+        printf("\t\tsize:         %ld\n", header.st_size);
+        printf("\t\tmtime:        %s\n", mtime_date);
+        printf("\t\tatime:        %s\n", atime_date);
 
-            // Read the footer and print the CRC values
-            if (read(iarch, &footer, sizeof(viktar_footer_t)) > 0) {
-                printf("\t\tcrc32 header: 0x%08x\n", footer.crc32_header);
-                printf("\t\tcrc32 data:   0x%08x\n", footer.crc32_data);
+        // Calculates CRC header
+        crc_header = calculate_crc32(&header, sizeof(viktar_header_t));
+        printf("\t\tcrc32 header: 0x%08x\n", crc_header);
+
+        // Reads data and calculates CRC for data
+        crc_data = crc32(0L, Z_NULL, 0);
+        data_remaining = header.st_size;
+
+        while (data_remaining > 0) {
+            to_read = (data_remaining > BUFFER_SIZE) ? BUFFER_SIZE : data_remaining;
+            bytes_read = read(iarch, crc_buf, to_read);
+            if (bytes_read < 0) {
+                perror("read error");
+                close(iarch);
+                exit(EXIT_FAILURE);
             }
-
-            lseek(iarch, header.st_size, SEEK_CUR);
+            crc_data = crc32(crc_data, crc_buf, bytes_read);
+            data_remaining -= bytes_read;
         }
+
+        printf("\t\tcrc32 data:   0x%08x\n", crc_data);
+
+        lseek(iarch, sizeof(viktar_footer_t), SEEK_CUR);
+    }
 
         // Closing the file
         if (filename != NULL) {
@@ -196,8 +234,14 @@ main(int argc, char *argv[])
         }
 
     }
+    
 
 
 
     return EXIT_SUCCESS;
+}
+
+// Function to calculate CRC32
+uint32_t calculate_crc32(const void *buf, size_t len) {
+    return crc32(0L, Z_NULL, 0) ^ crc32(0L, buf, len);
 }

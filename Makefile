@@ -5,13 +5,14 @@ CFLAGS = $(DEBUG) -Wall -Wextra -Wshadow -Wunreachable-code -Wredundant-decls \
 -Wmissing-prototypes -Wdeclaration-after-statement \
 -Wno-return-local-addr -Wunsafe-loop-optimizations \
 -Wuninitialized -Werror
+LDFLAGS = -lz
 PROG1 = viktar
 PROGS = $(PROG1)
 
 all: $(PROGS)
 
 $(PROG1): $(PROG1).o
-	$(CC) $(CFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 $(PROG1).o: $(PROG1).c
 	$(CC) $(CFLAGS) -c $<
