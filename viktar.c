@@ -25,6 +25,7 @@ void run_toc_short(const char *filename);
 void run_toc_long(const char *filename);
 void create_archive(const char *filename, int file_count, char *file_list[]);
 void extract_archive(const char *filename);
+void validate_archive(const char *filename);
 
 int 
 main(int argc, char *argv[]) {
@@ -63,9 +64,7 @@ main(int argc, char *argv[]) {
             default: // Invalid options
                 printf("invalid option -- '%s'\n", optarg);
                 printf("oopsie - unrecognized command line option \"(null)\"\n");
-                printf("no action supplied\n");
-                printf("exiting without doing ANYTHING...\n");
-                return EXIT_FAILURE;
+                break;
         }
     }
 
@@ -88,10 +87,14 @@ main(int argc, char *argv[]) {
         case ACTION_EXTRACT:
             extract_archive(filename);
             break;
+        case ACTION_VALIDATE:
+            validate_archive(filename);
+            break;
         default:
             printf("no action supplied\n");
             printf("exiting without doing ANYTHING...\n");
             return EXIT_FAILURE;
+            break;
     }
 
     return EXIT_SUCCESS;
@@ -390,6 +393,7 @@ extract_archive(const char *filename) {
             exit(EXIT_FAILURE);
         }
     } else {
+        fprintf(stderr, "reading archive from stdin\n");
         iarch = STDIN_FILENO;
     }
 
@@ -454,10 +458,10 @@ extract_archive(const char *filename) {
         }
 
         if (footer.crc32_header != crc_header) {
-            fprintf(stderr, "warning: header CRC mismatch for \"%s\" in file: 0x%08x extract: 0x%08x\n", header.viktar_name, footer.crc32_header, crc_header);
+            fprintf(stderr, "*** CRC32 failure header: %s  in file: 0x%08x  extract: 0x%08x ***\n", header.viktar_name, footer.crc32_header, crc_header);
         }
         if (footer.crc32_data != crc_data) {
-            fprintf(stderr, "warning: data CRC mismatch for \"%s\" in file: 0x%08x extract: 0x%08x\n", header.viktar_name, footer.crc32_data, crc_data);
+            fprintf(stderr, "*** CRC32 failure data: %s  in file: 0x%08x  extract: 0x%08x ***\n", header.viktar_name, footer.crc32_data, crc_data);
         }
 
         // Restore file timestamps using futimens
@@ -480,6 +484,104 @@ extract_archive(const char *filename) {
 
         // Closes the output file
         close(ofd);
+    }
+
+    // Closes the archive file
+    if (filename != NULL) {
+        close(iarch);
+    }
+}
+
+void 
+validate_archive(const char *filename) {
+    int iarch;
+    viktar_header_t header;
+    viktar_footer_t footer;
+    uint32_t crc_header;
+    uint32_t crc_data;
+    size_t data_remaining;
+    size_t to_read;
+    ssize_t bytes_read;
+    unsigned char crc_buf[BUFFER_SIZE];
+    char buf[sizeof(VIKTAR_TAG)];
+    int member_count = 0;
+
+    // Opens the archive file for reading
+    if (filename != NULL) {
+        iarch = open(filename, O_RDONLY);
+        if (iarch < 0) {
+            perror("cannot open archive file");
+            exit(EXIT_FAILURE);
+        }
+    } else {
+        iarch = STDIN_FILENO;
+    }
+
+    // Validates the VIKTAR_TAG
+    if (read(iarch, buf, sizeof(VIKTAR_TAG) - 1) != sizeof(VIKTAR_TAG) - 1) {
+        perror("read error");
+        if (filename != NULL) close(iarch);
+        exit(EXIT_FAILURE);
+    }
+    buf[sizeof(VIKTAR_TAG) - 1] = '\0';
+
+    if (strcmp(buf, VIKTAR_TAG) != 0) {
+        fprintf(stderr, "not a viktar file: \"%s\"\n", filename != NULL ? filename : "stdin");
+        if (filename != NULL) close(iarch);
+        exit(EXIT_FAILURE);
+    }
+
+    // Processes each file in the archive
+    while (read(iarch, &header, sizeof(viktar_header_t)) == sizeof(viktar_header_t)) {
+        member_count++;
+
+        // Calculates CRC for header
+        crc_header = crc32(0L, Z_NULL, 0);
+        crc_header = crc32(crc_header, (const Bytef *)&header, sizeof(viktar_header_t));
+
+        // Reads file data and calculates CRC
+        crc_data = crc32(0L, Z_NULL, 0);
+        data_remaining = header.st_size;
+
+        while (data_remaining > 0) {
+            to_read = (data_remaining > BUFFER_SIZE) ? BUFFER_SIZE : data_remaining;
+            bytes_read = read(iarch, crc_buf, to_read);
+            if (bytes_read < 0) {
+                perror("read error");
+                if (filename != NULL) close(iarch);
+                exit(EXIT_FAILURE);
+            }
+            crc_data = crc32(crc_data, crc_buf, bytes_read);
+            data_remaining -= bytes_read;
+        }
+
+        // Reads the footer
+        if (read(iarch, &footer, sizeof(viktar_footer_t)) != sizeof(viktar_footer_t)) {
+            perror("read footer error");
+            if (filename != NULL) close(iarch);
+            exit(EXIT_FAILURE);
+        }
+
+        // Prints validation messages
+        printf("Validation for data member %d:\n", member_count);
+
+        // Validates CRC for header
+        if (footer.crc32_header == crc_header) {
+            printf("        Header crc does match:     0x%08x   0x%08x for member %s\n",
+                   footer.crc32_header, crc_header, header.viktar_name);
+        } else {
+            printf("        Header crc does not match: 0x%08x   0x%08x for member %d\n",
+                   crc_header, footer.crc32_header, member_count);
+        }
+
+        // Validates CRC for data
+        if (footer.crc32_data == crc_data) {
+            printf("        Data crc does match:       0x%08x   0x%08x for member %s\n",
+                   footer.crc32_data, crc_data, header.viktar_name);
+        } else {
+            printf("        Data crc does not match:   0x%08x   0x%08x for member %d\n",
+                   crc_data, footer.crc32_data, member_count);
+        }
     }
 
     // Closes the archive file
