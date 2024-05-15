@@ -1,4 +1,5 @@
 #!/bin/bash
 
 # viktar test script
-# Alan Shirk - alans
+# Alan Shirk
+# alans@pdx.edu
