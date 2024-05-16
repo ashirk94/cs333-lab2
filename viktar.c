@@ -20,7 +20,6 @@
 #define BUFFER_SIZE 1000
 
 void display_help(void);
-uint32_t calculate_crc32(const void *buf, size_t len);
 void run_toc_short(const char *filename);
 void run_toc_long(const char *filename);
 void create_archive(const char *filename, int file_count, char *file_list[]);
@@ -73,7 +72,7 @@ main(int argc, char *argv[]) {
         fprintf(stderr, "verbose enabled\n");
     }
 
-    // Execute the selected action
+    // Switch for the viktar actions
     switch (action) {
         case ACTION_TOC_SHORT:
             run_toc_short(filename);
@@ -153,12 +152,6 @@ run_toc_short(const char *filename) {
     if (filename != NULL) {
         close(iarch);
     }
-}
-
-// Calculates CRC32
-uint32_t 
-calculate_crc32(const void *buf, size_t len) {
-    return crc32(0L, Z_NULL, 0) ^ crc32(0L, buf, len);
 }
 
 // Long table of contents
@@ -287,14 +280,14 @@ create_archive(const char *filename, int file_count, char *file_list[]) {
         oarch = STDOUT_FILENO;
     }
 
-    // Writing the VIKTAR_TAG to the archive file
-    if (write(oarch, VIKTAR_TAG, strlen(VIKTAR_TAG)) != (ssize_t)strlen(VIKTAR_TAG)) {
+    // Writing the tag to the viktar file
+    if (write(oarch, VIKTAR_TAG, strlen(VIKTAR_TAG)) != (size_t)strlen(VIKTAR_TAG)) {
         perror("write error");
         if (filename != NULL) close(oarch);
         exit(EXIT_FAILURE);
     }
 
-    // Loops through each file to add to the archive
+    // Loops through each file to add to the viktar archive
     for (int i = 0; i < file_count; i++) {
         char *member_filename = file_list[i];
         if (stat(member_filename, &st) < 0) {
@@ -397,13 +390,13 @@ extract_archive(const char *filename) {
         iarch = STDIN_FILENO;
     }
 
-    // Validate the VIKTAR_TAG
-    if (read(iarch, buf, sizeof(VIKTAR_TAG) - 1) != sizeof(VIKTAR_TAG) - 1) {
+    // Validates the tag
+    if (read(iarch, buf, strlen(VIKTAR_TAG)) != strlen(VIKTAR_TAG)) {
         perror("read error");
         if (filename != NULL) close(iarch);
         exit(EXIT_FAILURE);
     }
-    buf[sizeof(VIKTAR_TAG) - 1] = '\0';
+    buf[strlen(VIKTAR_TAG)] = '\0';
 
     if (strcmp(buf, VIKTAR_TAG) != 0) {
         fprintf(stderr, "not a viktar file: \"%s\"\n", filename != NULL ? filename : "stdin");
@@ -418,7 +411,6 @@ extract_archive(const char *filename) {
         crc_header = crc32(crc_header, (const Bytef *)&header, sizeof(viktar_header_t));
 
         // Creates and opens the output file
-        umask(0);
         ofd = open(header.viktar_name, O_WRONLY | O_CREAT | O_TRUNC, header.st_mode & 0777);
         if (ofd < 0) {
             perror("cannot create output file");
@@ -492,6 +484,7 @@ extract_archive(const char *filename) {
     }
 }
 
+// Validates viktar files
 void 
 validate_archive(const char *filename) {
     int iarch;
@@ -506,7 +499,7 @@ validate_archive(const char *filename) {
     char buf[sizeof(VIKTAR_TAG)];
     int member_count = 0;
 
-    // Opens the archive file for reading
+    // Opens the viktar file for reading
     if (filename != NULL) {
         iarch = open(filename, O_RDONLY);
         if (iarch < 0) {
@@ -517,13 +510,13 @@ validate_archive(const char *filename) {
         iarch = STDIN_FILENO;
     }
 
-    // Validates the VIKTAR_TAG
-    if (read(iarch, buf, sizeof(VIKTAR_TAG) - 1) != sizeof(VIKTAR_TAG) - 1) {
+    // Validates the tag
+    if (read(iarch, buf, strlen(VIKTAR_TAG)) != strlen(VIKTAR_TAG)) {
         perror("read error");
         if (filename != NULL) close(iarch);
         exit(EXIT_FAILURE);
     }
-    buf[sizeof(VIKTAR_TAG) - 1] = '\0';
+    buf[strlen(VIKTAR_TAG)] = '\0';
 
     if (strcmp(buf, VIKTAR_TAG) != 0) {
         fprintf(stderr, "not a viktar file: \"%s\"\n", filename != NULL ? filename : "stdin");
@@ -562,24 +555,23 @@ validate_archive(const char *filename) {
             exit(EXIT_FAILURE);
         }
 
-        // Prints validation messages
         printf("Validation for data member %d:\n", member_count);
 
         // Validates CRC for header
         if (footer.crc32_header == crc_header) {
-            printf("        Header crc does match:     0x%08x   0x%08x for member %s\n",
+            printf("\tHeader crc does match:     0x%08x   0x%08x for member %s\n",
                    footer.crc32_header, crc_header, header.viktar_name);
         } else {
-            printf("        Header crc does not match: 0x%08x   0x%08x for member %d\n",
+            printf("\tHeader crc does not match: 0x%08x   0x%08x for member %d\n",
                    crc_header, footer.crc32_header, member_count);
         }
 
         // Validates CRC for data
         if (footer.crc32_data == crc_data) {
-            printf("        Data crc does match:       0x%08x   0x%08x for member %s\n",
+            printf("\tData crc does match:       0x%08x   0x%08x for member %s\n",
                    footer.crc32_data, crc_data, header.viktar_name);
         } else {
-            printf("        Data crc does not match:   0x%08x   0x%08x for member %d\n",
+            printf("\tData crc does not match:   0x%08x   0x%08x for member %d\n",
                    crc_data, footer.crc32_data, member_count);
         }
     }
